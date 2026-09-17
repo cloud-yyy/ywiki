@@ -21,10 +21,16 @@ func IsTTY() bool {
 // TerminalWidth returns the current terminal width in columns.
 // Returns 80 as the default when not connected to a terminal or on error.
 func TerminalWidth() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	fd, ok := FileDescriptor(os.Stdout)
+	if !ok {
+		return defaultTerminalWidth
+	}
+
+	width, _, err := term.GetSize(fd)
 	if err != nil || width <= 0 {
 		return defaultTerminalWidth
 	}
+
 	return width
 }
 

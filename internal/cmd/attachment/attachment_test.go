@@ -137,3 +137,24 @@ func TestAttachmentDownloadToStdout(t *testing.T) {
 		t.Errorf("stdout = %q, want the raw file bytes", stdout)
 	}
 }
+
+func TestAttachmentUploadRejectsEmptyFile(t *testing.T) {
+	handler, log := testutil.RouteHandler(map[string]string{"/pages": `{"id":12345}`})
+	testutil.StubAPI(t, handler)
+
+	path := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, _, err := testutil.Execute(t, attachment.NewCmd, "upload", "12345", path)
+	if err == nil {
+		t.Fatal("attachment upload accepted an empty file")
+	}
+
+	for i := range log.Len() {
+		if strings.Contains(log.At(i).Path, "upload_sessions") {
+			t.Error("attachment upload opened a session for an empty file")
+		}
+	}
+}

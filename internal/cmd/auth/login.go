@@ -132,8 +132,16 @@ func resolveToken(cmd *cobra.Command, token string, withToken bool) (string, err
 		)
 	}
 
+	fd, ok := output.FileDescriptor(os.Stdin)
+	if !ok {
+		return "", wikierrors.NewUserError(
+			"cannot read from stdin",
+			"Pipe the token in with --with-token",
+		)
+	}
+
 	_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Token: ")
-	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	raw, err := term.ReadPassword(fd)
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr())
 	if err != nil {
 		return "", fmt.Errorf("failed to read token: %w", err)

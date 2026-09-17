@@ -69,6 +69,14 @@ func runUpload(cmd *cobra.Command, ref, path, name string) error {
 			"Pass a single file to upload",
 		)
 	}
+	if info.Size() == 0 {
+		// The upload session expects at least one part, so an empty file
+		// would fail deep inside the sequence with an opaque API error.
+		return wikierrors.NewUserError(
+			path+" is empty",
+			"Attach a file with content",
+		)
+	}
 
 	if name == "" {
 		name = filepath.Base(path)
