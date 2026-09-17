@@ -17,7 +17,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          # Track the go directive so CI cannot drift from the module.
+          go-version-file: go.mod
       - run: go test -race ./...
       - uses: goreleaser/goreleaser-action@v7
         with:

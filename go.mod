@@ -1,6 +1,6 @@
 module github.com/cloud-yyy/ywiki
 
-go 1.27.1
+go 1.26.0
 
 require (
 	github.com/itchyny/gojq v0.12.19

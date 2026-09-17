@@ -130,7 +130,7 @@ func (e *InvalidFieldError) JSONError() ([]byte, error) {
 
 // NewInvalidFieldError creates an error for an unrecognized JSON field name.
 func NewInvalidFieldError(field string, validFields []string) *InvalidFieldError {
-	return &InvalidFieldError{ //nolint:modernize // the embedded type cannot be elided here
+	return &InvalidFieldError{
 		ExitError: ExitError{
 			ExitCode:   ExitUserError,
 			Code:       CodeInvalidField,
