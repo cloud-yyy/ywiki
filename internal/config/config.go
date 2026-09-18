@@ -11,34 +11,57 @@ import (
 	wikierrors "github.com/cloud-yyy/ywiki/internal/errors"
 )
 
-// OrgType identifies which organization the token belongs to. It selects both
-// the organization header and the Authorization scheme: Yandex 360 and
-// Identity Hub use X-Org-Id with an OAuth token, while Yandex Cloud uses
-// X-Cloud-Org-Id with a Bearer IAM token.
+// OrgType identifies the kind of organization, which selects the header the
+// organization ID travels in: Yandex 360 for Business uses X-Org-Id, while
+// Yandex Cloud and Yandex Identity Hub organizations use X-Cloud-Org-Id.
 type OrgType string
 
 const (
-	// OrgType360 uses the X-Org-Id header and an OAuth token.
+	// OrgType360 is a Yandex 360 for Business organization.
 	OrgType360 OrgType = "360"
 
-	// OrgTypeCloud uses the X-Cloud-Org-Id header and a Bearer IAM token.
+	// OrgTypeCloud is a Yandex Cloud or Yandex Identity Hub organization.
 	OrgTypeCloud OrgType = "cloud"
 )
 
-// AuthScheme returns the Authorization header scheme for the organization type.
-func (t OrgType) AuthScheme() string {
-	if t == OrgTypeCloud {
-		return "Bearer"
-	}
-	return "OAuth"
-}
-
-// OrgHeader returns the organization header name for the organization type.
+// OrgHeader returns the header that carries the organization ID.
 func (t OrgType) OrgHeader() string {
 	if t == OrgTypeCloud {
 		return "X-Cloud-Org-Id"
 	}
 	return "X-Org-Id"
+}
+
+// DefaultTokenType is the token type assumed when none is configured. A 360
+// organization only accepts OAuth; a Cloud organization defaults to IAM,
+// which is what ywiki sent before token type was configurable, so configs
+// written by earlier versions keep working unchanged.
+func (t OrgType) DefaultTokenType() TokenType {
+	if t == OrgTypeCloud {
+		return TokenTypeIAM
+	}
+	return TokenTypeOAuth
+}
+
+// TokenType identifies the kind of token, which selects the Authorization
+// scheme. It is independent of the organization type: Identity Hub pairs an
+// OAuth token with the Cloud organization header.
+type TokenType string
+
+const (
+	// TokenTypeOAuth is a Yandex OAuth token, sent as "OAuth <token>".
+	TokenTypeOAuth TokenType = "oauth"
+
+	// TokenTypeIAM is a Yandex Cloud IAM token, sent as "Bearer <token>".
+	TokenTypeIAM TokenType = "iam"
+)
+
+// AuthScheme returns the Authorization header scheme for the token type.
+func (t TokenType) AuthScheme() string {
+	if t == TokenTypeIAM {
+		return "Bearer"
+	}
+	return "OAuth"
 }
 
 // Config holds the persistent ywiki configuration loaded from config.yaml.
@@ -50,8 +73,20 @@ type Config struct {
 	// OrgID is the Wiki organization ID.
 	OrgID string `yaml:"org_id,omitempty"`
 
-	// OrgType determines the organization header and Authorization scheme.
+	// OrgType selects the organization header.
 	OrgType OrgType `yaml:"org_type,omitempty"`
+
+	// TokenType selects the Authorization scheme. Empty means the
+	// organization type's default.
+	TokenType TokenType `yaml:"token_type,omitempty"`
+}
+
+// AuthFlags carries credential values given on the command line.
+type AuthFlags struct {
+	Token     string
+	OrgID     string
+	OrgType   string
+	TokenType string
 }
 
 // ResolvedAuth holds resolved credentials together with the tier they came from.
@@ -62,8 +97,11 @@ type ResolvedAuth struct {
 	// OrgID is the resolved organization ID.
 	OrgID string
 
-	// OrgType determines the organization header and Authorization scheme.
+	// OrgType selects the organization header.
 	OrgType OrgType
+
+	// TokenType selects the Authorization scheme.
+	TokenType TokenType
 
 	// TokenSource indicates where credentials came from: "flag", "env", or "config".
 	TokenSource string
@@ -183,15 +221,33 @@ func ParseOrgType(value string) (OrgType, error) {
 	}
 }
 
+// ParseTokenType validates and normalizes a token type. An empty value is
+// valid and means "use the organization type's default".
+func ParseTokenType(value string) (TokenType, error) {
+	switch normalized := strings.ToLower(strings.TrimSpace(value)); normalized {
+	case "":
+		return "", nil
+	case string(TokenTypeOAuth):
+		return TokenTypeOAuth, nil
+	case string(TokenTypeIAM):
+		return TokenTypeIAM, nil
+	default:
+		return "", fmt.Errorf("invalid token-type %q", value)
+	}
+}
+
 // ResolveAuth resolves credentials using three-tier precedence:
 // flags > environment variables > config file. Flag and config tiers are
 // strict: partial credentials are reported rather than silently skipped, so a
 // typo does not fall through to a different tier. The environment tier is only
-// used when complete.
-func ResolveAuth(flagToken, flagOrgID, flagOrgType string) (*ResolvedAuth, error) {
+// used when complete. Token type is optional in every tier and is taken from
+// the same tier as the rest of the credentials.
+func ResolveAuth(flags AuthFlags) (*ResolvedAuth, error) {
+	flagToken, flagOrgID, flagOrgType := flags.Token, flags.OrgID, flags.OrgType
+
 	// Tier 1: flags.
 	if hasCompleteAuth(flagToken, flagOrgID, flagOrgType) {
-		return resolveAuthTier("flag", "", flagToken, flagOrgID, flagOrgType)
+		return resolveAuthTier("flag", "", flagToken, flagOrgID, flagOrgType, flags.TokenType)
 	}
 	if hasAnyAuth(flagToken, flagOrgID, flagOrgType) {
 		if flagOrgType != "" {
@@ -210,7 +266,9 @@ func ResolveAuth(flagToken, flagOrgID, flagOrgType string) (*ResolvedAuth, error
 	envOrgID := os.Getenv("YWIKI_ORG_ID")
 	envOrgType := os.Getenv("YWIKI_ORG_TYPE")
 	if hasCompleteAuth(envToken, envOrgID, envOrgType) {
-		return resolveAuthTier("env", "", envToken, envOrgID, envOrgType)
+		return resolveAuthTier(
+			"env", "", envToken, envOrgID, envOrgType, os.Getenv("YWIKI_TOKEN_TYPE"),
+		)
 	}
 
 	// Tier 3: config file.
@@ -233,7 +291,9 @@ func ResolveAuth(flagToken, flagOrgID, flagOrgType string) (*ResolvedAuth, error
 		)
 	}
 	if hasCompleteAuth(cfg.Token, cfg.OrgID, string(cfg.OrgType)) {
-		return resolveAuthTier("config", cfgPath, cfg.Token, cfg.OrgID, string(cfg.OrgType))
+		return resolveAuthTier(
+			"config", cfgPath, cfg.Token, cfg.OrgID, string(cfg.OrgType), string(cfg.TokenType),
+		)
 	}
 	if hasAnyAuth(cfg.Token, cfg.OrgID, string(cfg.OrgType)) {
 		if cfg.OrgType != "" {
@@ -265,7 +325,9 @@ func hasCompleteAuth(token, orgID, orgType string) bool {
 	return token != "" && orgID != "" && orgType != ""
 }
 
-func resolveAuthTier(source, configPath, token, orgID, orgTypeRaw string) (*ResolvedAuth, error) {
+func resolveAuthTier(
+	source, configPath, token, orgID, orgTypeRaw, tokenTypeRaw string,
+) (*ResolvedAuth, error) {
 	orgType, err := ParseOrgType(orgTypeRaw)
 	if err != nil {
 		return nil, wikierrors.NewUserError(
@@ -274,10 +336,22 @@ func resolveAuthTier(source, configPath, token, orgID, orgTypeRaw string) (*Reso
 		)
 	}
 
+	tokenType, err := ParseTokenType(tokenTypeRaw)
+	if err != nil {
+		return nil, wikierrors.NewUserError(
+			err.Error(),
+			"Use token type oauth or iam",
+		)
+	}
+	if tokenType == "" {
+		tokenType = orgType.DefaultTokenType()
+	}
+
 	return &ResolvedAuth{
 		Token:       token,
 		OrgID:       orgID,
 		OrgType:     orgType,
+		TokenType:   tokenType,
 		TokenSource: source,
 	}, nil
 }
