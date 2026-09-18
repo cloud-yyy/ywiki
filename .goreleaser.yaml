@@ -1,5 +1,17 @@
 version: 2
 
+before:
+  hooks:
+    # Completions are generated here and shipped in the archive rather than
+    # produced by running the binary at install time: Homebrew generates cask
+    # completions before the postflight hook clears the quarantine attribute,
+    # so Gatekeeper kills the unnotarized binary mid-install.
+    - rm -rf completions
+    - mkdir completions
+    - sh -c 'go run ./cmd/ywiki completion bash > completions/ywiki.bash'
+    - sh -c 'go run ./cmd/ywiki completion zsh > completions/_ywiki'
+    - sh -c 'go run ./cmd/ywiki completion fish > completions/ywiki.fish'
+
 builds:
   - main: ./cmd/ywiki
     binary: ywiki
@@ -28,6 +40,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - completions/*
 
 checksum:
   name_template: "checksums.txt"
@@ -58,15 +71,10 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
-    generate_completions_from_executable:
-      executable: "ywiki"
-      args:
-        - completion
-      shell_parameter_format: cobra
-      shells:
-        - bash
-        - zsh
-        - fish
+    completions:
+      bash: completions/ywiki.bash
+      zsh: completions/_ywiki
+      fish: completions/ywiki.fish
     hooks:
       post:
         # The release binaries are not Apple-notarized, so Gatekeeper would
