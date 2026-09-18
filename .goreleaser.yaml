@@ -1,0 +1,73 @@
+version: 2
+
+builds:
+  - main: ./cmd/ywiki
+    binary: ywiki
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/cloud-yyy/ywiki/internal/version.Version={{.Version}}
+      - -X github.com/cloud-yyy/ywiki/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/cloud-yyy/ywiki/internal/version.Date={{.Date}}
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+homebrew_casks:
+  - name: ywiki
+    binaries:
+      - ywiki
+    homepage: "https://github.com/cloud-yyy/ywiki"
+    description: "Yandex Wiki CLI for humans and LLM agents"
+    repository:
+      owner: cloud-yyy
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    generate_completions_from_executable:
+      executable: "ywiki"
+      args:
+        - completion
+      shell_parameter_format: cobra
+      shells:
+        - bash
+        - zsh
+        - fish
+    hooks:
+      post:
+        # The release binaries are not Apple-notarized, so Gatekeeper would
+        # quarantine them. Clearing the attribute is what makes the cask
+        # usable; it is the standard recipe for an unsigned CLI cask.
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ywiki"]
+    commit_author:
+      name: goreleaserbot
+      email: goreleaserbot@users.noreply.github.com
