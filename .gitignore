@@ -2,3 +2,7 @@
 /dist/
 coverage.out
 .DS_Store
+
+# Local secrets; never commit these to a public repository.
+.env
+.env.*
