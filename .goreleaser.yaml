@@ -32,6 +32,12 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+release:
+  # Make a re-run of a failed release idempotent: without this, assets
+  # uploaded by the first attempt make every retry fail with HTTP 422
+  # before it reaches the Homebrew step.
+  replace_existing_artifacts: true
+
 changelog:
   sort: asc
   filters:
