@@ -158,3 +158,71 @@ func TestLogoutRemovesConfig(t *testing.T) {
 		t.Error("auth logout left the config file in place")
 	}
 }
+
+// acceptOnly returns a handler that authenticates exactly one header pairing,
+// standing in for an organization that accepts a single token/org combination.
+func acceptOnly(orgHeader, scheme string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(orgHeader) == "" || !strings.HasPrefix(r.Header.Get("Authorization"), scheme+" ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error_code":"UNAUTHORIZED","debug_message":"nope"}`))
+			return
+		}
+		_, _ = w.Write([]byte(userJSON))
+	}
+}
+
+func TestLoginDetectsEachCombination(t *testing.T) {
+	tests := []struct {
+		name          string
+		orgHeader     string
+		scheme        string
+		wantOrgType   string
+		wantTokenType string
+	}{
+		{"Yandex 360", "X-Org-Id", "OAuth", "360", "oauth"},
+		{"Identity Hub", "X-Cloud-Org-Id", "OAuth", "cloud", "oauth"},
+		{"Yandex Cloud", "X-Cloud-Org-Id", "Bearer", "cloud", "iam"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testutil.StubAPI(t, acceptOnly(tt.orgHeader, tt.scheme))
+			clearEnvAuth(t)
+
+			stdout, _, err := testutil.ExecuteWithStdin(t, auth.NewCmd, "tok\n",
+				"login", "--org-id", "org-1", "--with-token")
+			if err != nil {
+				t.Fatalf("auth login returned error: %v", err)
+			}
+
+			want := "type " + tt.wantOrgType + ", token " + tt.wantTokenType
+			if !strings.Contains(stdout, want) {
+				t.Errorf("stdout = %q, want it to report %q", stdout, want)
+			}
+
+			data, err := os.ReadFile(filepath.Join(os.Getenv("YWIKI_CONFIG_DIR"), "config.yaml"))
+			if err != nil {
+				t.Fatalf("ReadFile returned error: %v", err)
+			}
+			if !strings.Contains(string(data), "token_type: "+tt.wantTokenType) {
+				t.Errorf("config does not record token_type %s:\n%s", tt.wantTokenType, data)
+			}
+		})
+	}
+}
+
+func TestLoginRejectsImpossibleCombination(t *testing.T) {
+	handler, log := testutil.JSONHandler(http.StatusOK, userJSON)
+	testutil.StubAPI(t, handler)
+	clearEnvAuth(t)
+
+	_, _, err := testutil.ExecuteWithStdin(t, auth.NewCmd, "tok\n",
+		"login", "--org-id", "org-1", "--org-type", "360", "--token-type", "iam", "--with-token")
+	if err == nil {
+		t.Fatal("auth login accepted a 360 organization with an IAM token")
+	}
+	if log.Len() != 0 {
+		t.Errorf("sent %d requests for a combination the API never accepts", log.Len())
+	}
+}

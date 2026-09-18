@@ -20,6 +20,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("YWIKI_TOKEN", "")
 	t.Setenv("YWIKI_ORG_ID", "")
 	t.Setenv("YWIKI_ORG_TYPE", "")
+	t.Setenv("YWIKI_TOKEN_TYPE", "")
 
 	return dir
 }
@@ -108,7 +109,7 @@ func TestResolveAuthPrecedence(t *testing.T) {
 	}
 
 	t.Run("config file is the last resort", func(t *testing.T) {
-		auth, err := config.ResolveAuth("", "", "")
+		auth, err := config.ResolveAuth(config.AuthFlags{})
 		if err != nil {
 			t.Fatalf("ResolveAuth returned error: %v", err)
 		}
@@ -122,7 +123,7 @@ func TestResolveAuthPrecedence(t *testing.T) {
 		t.Setenv("YWIKI_ORG_ID", "env-org")
 		t.Setenv("YWIKI_ORG_TYPE", "cloud")
 
-		auth, err := config.ResolveAuth("", "", "")
+		auth, err := config.ResolveAuth(config.AuthFlags{})
 		if err != nil {
 			t.Fatalf("ResolveAuth returned error: %v", err)
 		}
@@ -139,7 +140,7 @@ func TestResolveAuthPrecedence(t *testing.T) {
 		t.Setenv("YWIKI_ORG_ID", "env-org")
 		t.Setenv("YWIKI_ORG_TYPE", "cloud")
 
-		auth, err := config.ResolveAuth("flag-token", "flag-org", "360")
+		auth, err := config.ResolveAuth(config.AuthFlags{Token: "flag-token", OrgID: "flag-org", OrgType: "360"})
 		if err != nil {
 			t.Fatalf("ResolveAuth returned error: %v", err)
 		}
@@ -179,7 +180,7 @@ func TestResolveAuthErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			isolate(t)
 
-			_, err := config.ResolveAuth(tt.token, tt.orgID, tt.orgType)
+			_, err := config.ResolveAuth(config.AuthFlags{Token: tt.token, OrgID: tt.orgID, OrgType: tt.orgType})
 			if err == nil {
 				t.Fatal("ResolveAuth returned nil error, want an error")
 			}
@@ -202,7 +203,7 @@ func TestResolveAuthRejectsPartialConfig(t *testing.T) {
 		t.Fatalf("Save returned error: %v", err)
 	}
 
-	_, err := config.ResolveAuth("", "", "")
+	_, err := config.ResolveAuth(config.AuthFlags{})
 	if err == nil {
 		t.Fatal("ResolveAuth accepted a partial config")
 	}
@@ -216,24 +217,98 @@ func TestResolveAuthRejectsPartialConfig(t *testing.T) {
 	}
 }
 
-func TestOrgTypeHeaders(t *testing.T) {
+func TestOrgHeader(t *testing.T) {
+	if got := config.OrgType360.OrgHeader(); got != "X-Org-Id" {
+		t.Errorf("360 OrgHeader = %q, want X-Org-Id", got)
+	}
+	if got := config.OrgTypeCloud.OrgHeader(); got != "X-Cloud-Org-Id" {
+		t.Errorf("cloud OrgHeader = %q, want X-Cloud-Org-Id", got)
+	}
+}
+
+func TestTokenTypeAuthScheme(t *testing.T) {
+	if got := config.TokenTypeOAuth.AuthScheme(); got != "OAuth" {
+		t.Errorf("oauth AuthScheme = %q, want OAuth", got)
+	}
+	if got := config.TokenTypeIAM.AuthScheme(); got != "Bearer" {
+		t.Errorf("iam AuthScheme = %q, want Bearer", got)
+	}
+}
+
+func TestResolveAuthTokenType(t *testing.T) {
 	tests := []struct {
-		orgType    config.OrgType
-		wantScheme string
-		wantHeader string
+		name      string
+		orgType   string
+		tokenType string
+		want      config.TokenType
 	}{
-		{config.OrgType360, "OAuth", "X-Org-Id"},
-		{config.OrgTypeCloud, "Bearer", "X-Cloud-Org-Id"},
+		// Defaults preserve what earlier versions sent, so old configs keep working.
+		{name: "360 defaults to oauth", orgType: "360", want: config.TokenTypeOAuth},
+		{name: "cloud defaults to iam", orgType: "cloud", want: config.TokenTypeIAM},
+		// Identity Hub: a Cloud organization header with an OAuth token.
+		{name: "cloud accepts an explicit oauth", orgType: "cloud", tokenType: "oauth", want: config.TokenTypeOAuth},
+		{name: "token type is case-insensitive", orgType: "cloud", tokenType: "IAM", want: config.TokenTypeIAM},
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.orgType), func(t *testing.T) {
-			if got := tt.orgType.AuthScheme(); got != tt.wantScheme {
-				t.Errorf("AuthScheme = %q, want %q", got, tt.wantScheme)
+		t.Run(tt.name, func(t *testing.T) {
+			isolate(t)
+
+			auth, err := config.ResolveAuth(config.AuthFlags{
+				Token: "tok", OrgID: "org", OrgType: tt.orgType, TokenType: tt.tokenType,
+			})
+			if err != nil {
+				t.Fatalf("ResolveAuth returned error: %v", err)
 			}
-			if got := tt.orgType.OrgHeader(); got != tt.wantHeader {
-				t.Errorf("OrgHeader = %q, want %q", got, tt.wantHeader)
+			if auth.TokenType != tt.want {
+				t.Errorf("TokenType = %q, want %q", auth.TokenType, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveAuthTokenTypeFromEachTier(t *testing.T) {
+	t.Run("environment", func(t *testing.T) {
+		isolate(t)
+		t.Setenv("YWIKI_TOKEN", "tok")
+		t.Setenv("YWIKI_ORG_ID", "org")
+		t.Setenv("YWIKI_ORG_TYPE", "cloud")
+		t.Setenv("YWIKI_TOKEN_TYPE", "oauth")
+
+		auth, err := config.ResolveAuth(config.AuthFlags{})
+		if err != nil {
+			t.Fatalf("ResolveAuth returned error: %v", err)
+		}
+		if auth.TokenType != config.TokenTypeOAuth {
+			t.Errorf("TokenType = %q, want oauth from YWIKI_TOKEN_TYPE", auth.TokenType)
+		}
+	})
+
+	t.Run("config file", func(t *testing.T) {
+		isolate(t)
+		if err := config.Save(&config.Config{
+			Token: "tok", OrgID: "org", OrgType: config.OrgTypeCloud, TokenType: config.TokenTypeOAuth,
+		}); err != nil {
+			t.Fatalf("Save returned error: %v", err)
+		}
+
+		auth, err := config.ResolveAuth(config.AuthFlags{})
+		if err != nil {
+			t.Fatalf("ResolveAuth returned error: %v", err)
+		}
+		if auth.TokenType != config.TokenTypeOAuth {
+			t.Errorf("TokenType = %q, want oauth from the config file", auth.TokenType)
+		}
+	})
+}
+
+func TestResolveAuthRejectsInvalidTokenType(t *testing.T) {
+	isolate(t)
+
+	_, err := config.ResolveAuth(config.AuthFlags{
+		Token: "tok", OrgID: "org", OrgType: "360", TokenType: "jwt",
+	})
+	if err == nil {
+		t.Fatal("ResolveAuth accepted an invalid token type")
 	}
 }

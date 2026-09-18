@@ -13,6 +13,14 @@ import (
 func newTestClient(t *testing.T, handler http.HandlerFunc, orgType config.OrgType) *api.Client {
 	t.Helper()
 
+	return newTestClientWithToken(t, handler, orgType, "")
+}
+
+func newTestClientWithToken(
+	t *testing.T, handler http.HandlerFunc, orgType config.OrgType, tokenType config.TokenType,
+) *api.Client {
+	t.Helper()
+
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -20,6 +28,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc, orgType config.OrgTyp
 		Token:       "secret-token",
 		OrgID:       "org-42",
 		OrgType:     orgType,
+		TokenType:   tokenType,
 		TokenSource: "env",
 	}, api.WithBaseURL(server.URL))
 }
@@ -28,17 +37,33 @@ func TestClientSendsAuthHeaders(t *testing.T) {
 	tests := []struct {
 		name       string
 		orgType    config.OrgType
+		tokenType  config.TokenType
 		wantAuth   string
 		wantHeader string
 	}{
 		{
-			name:       "360 org uses OAuth and X-Org-Id",
+			name:       "Yandex 360 uses OAuth and X-Org-Id",
 			orgType:    config.OrgType360,
+			tokenType:  config.TokenTypeOAuth,
 			wantAuth:   "OAuth secret-token",
 			wantHeader: "X-Org-Id",
 		},
 		{
-			name:       "cloud org uses Bearer and X-Cloud-Org-Id",
+			name:       "Identity Hub uses OAuth and X-Cloud-Org-Id",
+			orgType:    config.OrgTypeCloud,
+			tokenType:  config.TokenTypeOAuth,
+			wantAuth:   "OAuth secret-token",
+			wantHeader: "X-Cloud-Org-Id",
+		},
+		{
+			name:       "Yandex Cloud uses Bearer and X-Cloud-Org-Id",
+			orgType:    config.OrgTypeCloud,
+			tokenType:  config.TokenTypeIAM,
+			wantAuth:   "Bearer secret-token",
+			wantHeader: "X-Cloud-Org-Id",
+		},
+		{
+			name:       "cloud with no token type keeps the pre-0.2 Bearer default",
 			orgType:    config.OrgTypeCloud,
 			wantAuth:   "Bearer secret-token",
 			wantHeader: "X-Cloud-Org-Id",
@@ -48,10 +73,10 @@ func TestClientSendsAuthHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got *http.Request
-			client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			client := newTestClientWithToken(t, func(w http.ResponseWriter, r *http.Request) {
 				got = r
 				_, _ = w.Write([]byte(`{"id":1,"username":"me"}`))
-			}, tt.orgType)
+			}, tt.orgType, tt.tokenType)
 
 			if _, err := client.GetCurrentUser(context.Background()); err != nil {
 				t.Fatalf("GetCurrentUser returned error: %v", err)

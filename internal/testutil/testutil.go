@@ -43,6 +43,7 @@ func StubAPI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Setenv("YWIKI_TOKEN", "test-token")
 	t.Setenv("YWIKI_ORG_ID", "test-org")
 	t.Setenv("YWIKI_ORG_TYPE", "360")
+	t.Setenv("YWIKI_TOKEN_TYPE", "")
 	t.Setenv("YWIKI_CONFIG_DIR", t.TempDir())
 
 	original := cmdutil.NewClient
@@ -83,6 +84,7 @@ func newTestRoot() *cobra.Command {
 	root.PersistentFlags().String("token", "", "")
 	root.PersistentFlags().String("org-id", "", "")
 	root.PersistentFlags().String("org-type", "", "")
+	root.PersistentFlags().String("token-type", "", "")
 
 	return root
 }
