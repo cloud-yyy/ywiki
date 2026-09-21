@@ -23,6 +23,7 @@ func newLoginCmd() *cobra.Command {
 		token     string
 		orgID     string
 		orgType   string
+		tokenType string
 		withToken bool
 	)
 
@@ -35,9 +36,14 @@ The token is read interactively without echoing, or from stdin with
 --with-token so it never lands in your shell history. Credentials are verified
 against the API before they are saved, and written with 0600 permissions.
 
-Yandex 360 and Identity Hub organizations use an OAuth token (org type 360);
-Yandex Cloud organizations use an IAM token (org type cloud). When --org-type
-is omitted, ywiki tries both and keeps the one that works.`,
+Three combinations are supported:
+
+  Yandex 360 for Business    --org-type 360    --token-type oauth
+  Yandex Identity Hub        --org-type cloud  --token-type oauth
+  Yandex Cloud               --org-type cloud  --token-type iam
+
+Omitted types are detected by trying each combination and keeping the one the
+API accepts. IAM tokens expire after 12 hours, so prefer OAuth where you can.`,
 		Example: `  # Log in interactively
   ywiki auth login --org-id 1234567
 
@@ -45,19 +51,20 @@ is omitted, ywiki tries both and keeps the one that works.`,
   cat token.txt | ywiki auth login --org-id 1234567 --with-token`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogin(cmd, token, orgID, orgType, withToken)
+			return runLogin(cmd, token, orgID, orgType, tokenType, withToken)
 		},
 	}
 
 	cmd.Flags().StringVar(&token, "token", "", "Token to store (prefer --with-token or the prompt)")
 	cmd.Flags().StringVar(&orgID, "org-id", "", "Wiki organization ID (required)")
 	cmd.Flags().StringVar(&orgType, "org-type", "", "Organization type: 360 or cloud (detected if omitted)")
+	cmd.Flags().StringVar(&tokenType, "token-type", "", "Token type: oauth or iam (detected if omitted)")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read the token from stdin")
 
 	return cmd
 }
 
-func runLogin(cmd *cobra.Command, token, orgID, orgType string, withToken bool) error {
+func runLogin(cmd *cobra.Command, token, orgID, orgType, tokenType string, withToken bool) error {
 	if orgID == "" {
 		return wikierrors.NewUserError(
 			"missing organization ID",
@@ -70,15 +77,16 @@ func runLogin(cmd *cobra.Command, token, orgID, orgType string, withToken bool) 
 		return err
 	}
 
-	resolved, user, err := verify(cmd.Context(), token, orgID, orgType)
+	resolved, user, err := verify(cmd.Context(), token, orgID, orgType, tokenType)
 	if err != nil {
 		return err
 	}
 
 	if err := config.Save(&config.Config{
-		Token:   resolved.Token,
-		OrgID:   resolved.OrgID,
-		OrgType: resolved.OrgType,
+		Token:     resolved.Token,
+		OrgID:     resolved.OrgID,
+		OrgType:   resolved.OrgType,
+		TokenType: resolved.TokenType,
 	}); err != nil {
 		return err
 	}
@@ -95,8 +103,8 @@ func runLogin(cmd *cobra.Command, token, orgID, orgType string, withToken bool) 
 		name = user.Username
 	}
 
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Logged in as %s (org %s, type %s)\n",
-		name, resolved.OrgID, resolved.OrgType)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Logged in as %s (org %s, type %s, token %s)\n",
+		name, resolved.OrgID, resolved.OrgType, resolved.TokenType)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Credentials saved to %s\n", path)
 
 	return nil
@@ -155,31 +163,65 @@ func resolveToken(cmd *cobra.Command, token string, withToken bool) (string, err
 	return value, nil
 }
 
+// authCombination is one organization/token pairing the Wiki API accepts.
+type authCombination struct {
+	orgType   config.OrgType
+	tokenType config.TokenType
+}
+
+// supportedCombinations lists every pairing documented by the Wiki API, most
+// common first so detection usually succeeds on the first request.
+var supportedCombinations = []authCombination{
+	{config.OrgType360, config.TokenTypeOAuth},
+	{config.OrgTypeCloud, config.TokenTypeOAuth},
+	{config.OrgTypeCloud, config.TokenTypeIAM},
+}
+
 // verify checks the credentials against the API before they are stored, so a
-// bad token fails here rather than on some later command. With no explicit
-// org type, both are tried: the two differ only in header and token scheme, so
-// one round trip each is enough to tell them apart.
+// bad token fails here rather than on some later command. Any type left
+// unspecified is detected by trying the matching supported combinations; they
+// differ only in headers, so one round trip each tells them apart.
 func verify(
-	ctx context.Context, token, orgID, orgType string,
+	ctx context.Context, token, orgID, orgTypeRaw, tokenTypeRaw string,
 ) (*config.ResolvedAuth, *api.User, error) {
-	candidates := []config.OrgType{config.OrgType360, config.OrgTypeCloud}
-	if orgType != "" {
-		parsed, err := config.ParseOrgType(orgType)
+	var orgType config.OrgType
+	if orgTypeRaw != "" {
+		parsed, err := config.ParseOrgType(orgTypeRaw)
 		if err != nil {
-			return nil, nil, wikierrors.NewUserError(
-				err.Error(),
-				"Use --org-type 360 or --org-type cloud",
-			)
+			return nil, nil, wikierrors.NewUserError(err.Error(), "Use --org-type 360 or --org-type cloud")
 		}
-		candidates = []config.OrgType{parsed}
+		orgType = parsed
+	}
+
+	tokenType, err := config.ParseTokenType(tokenTypeRaw)
+	if err != nil {
+		return nil, nil, wikierrors.NewUserError(err.Error(), "Use --token-type oauth or --token-type iam")
+	}
+
+	var candidates []authCombination
+	for _, combo := range supportedCombinations {
+		if orgType != "" && combo.orgType != orgType {
+			continue
+		}
+		if tokenType != "" && combo.tokenType != tokenType {
+			continue
+		}
+		candidates = append(candidates, combo)
+	}
+	if len(candidates) == 0 {
+		return nil, nil, wikierrors.NewUserError(
+			fmt.Sprintf("org type %s does not accept %s tokens", orgType, tokenType),
+			"Yandex 360 organizations only accept OAuth tokens",
+		)
 	}
 
 	var lastErr error
-	for _, candidate := range candidates {
+	for _, combo := range candidates {
 		auth := &config.ResolvedAuth{
 			Token:       token,
 			OrgID:       orgID,
-			OrgType:     candidate,
+			OrgType:     combo.orgType,
+			TokenType:   combo.tokenType,
 			TokenSource: "flag",
 		}
 
@@ -196,7 +238,7 @@ func verify(
 
 	return nil, nil, wikierrors.NewAuthError(
 		"could not authenticate with the given token and organization ID",
-		"Check the token and organization ID. If the organization type is known, "+
-			"pass --org-type 360 or --org-type cloud for the exact error.",
+		"Check the token and organization ID. If you know the organization and token type, "+
+			"pass --org-type and --token-type to see the exact API error.",
 	)
 }

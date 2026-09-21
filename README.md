@@ -40,12 +40,23 @@ Download a release from [GitHub Releases](https://github.com/cloud-yyy/ywiki/rel
 Yandex Wiki API requests act on behalf of a person: service accounts are not
 supported, and every command is limited by that user's own Wiki permissions.
 
-Two organization types exist, and they differ in both token kind and header:
+Three organization and token pairings are supported:
 
-| Org type | Where it applies | Token |
-| --- | --- | --- |
-| `360` | Yandex 360 for Business, Yandex Identity Hub | OAuth token from [oauth.yandex.ru](https://oauth.yandex.ru), scope `wiki:write` or `wiki:read` |
-| `cloud` | Yandex Cloud organizations | IAM token, valid for 12 hours |
+| Organization | `--org-type` | `--token-type` | Token |
+| --- | --- | --- | --- |
+| Yandex 360 for Business | `360` | `oauth` | OAuth token |
+| Yandex Identity Hub | `cloud` | `oauth` | OAuth token |
+| Yandex Cloud | `cloud` | `iam` | IAM token, valid for 12 hours |
+
+Federated accounts must use an IAM token.
+
+To get an OAuth token, create an app at [oauth.yandex.ru](https://oauth.yandex.ru)
+("For API access or debugging") with the `wiki:write` or `wiki:read` permission,
+then open `https://oauth.yandex.ru/authorize?response_type=token&client_id=<ClientID>`
+while signed in as the account ywiki should act as.
+
+The organization ID is listed under Administration, Organizations in
+[Yandex Tracker](https://tracker.yandex.ru/admin/orgs).
 
 Log in once:
 
@@ -54,8 +65,8 @@ ywiki auth login --org-id <your-org-id>
 ```
 
 The token is read from a no-echo prompt, verified against the API, and stored
-in `~/.config/ywiki/config.yaml` with `0600` permissions. To feed it from a
-secret store instead:
+in `~/.config/ywiki/config.yaml` with `0600` permissions. Organization and token
+type are detected when omitted. To feed the token from a secret store instead:
 
 ```
 cat token.txt | ywiki auth login --org-id <your-org-id> --with-token
@@ -63,9 +74,11 @@ cat token.txt | ywiki auth login --org-id <your-org-id> --with-token
 
 Credentials resolve in three tiers, highest first:
 
-1. Flags: `--token`, `--org-id`, `--org-type` (pass all three together)
-2. Environment: `YWIKI_TOKEN`, `YWIKI_ORG_ID`, `YWIKI_ORG_TYPE`
+1. Flags: `--token`, `--org-id`, `--org-type` together, plus optional `--token-type`
+2. Environment: `YWIKI_TOKEN`, `YWIKI_ORG_ID`, `YWIKI_ORG_TYPE`, plus optional `YWIKI_TOKEN_TYPE`
 3. Config file written by `ywiki auth login`
+
+Token type defaults to `oauth` for `360` and `iam` for `cloud`.
 
 ## Quick start
 

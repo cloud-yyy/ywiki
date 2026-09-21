@@ -12,13 +12,16 @@ import (
 )
 
 // StatusFields lists the available JSON field names for auth status output.
-var StatusFields = []string{"username", "displayName", "orgId", "orgType", "tokenSource", "valid"}
+var StatusFields = []string{
+	"username", "displayName", "orgId", "orgType", "tokenType", "tokenSource", "valid",
+}
 
 type statusItem struct {
 	Username    string `json:"username,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
 	OrgID       string `json:"orgId"`
 	OrgType     string `json:"orgType"`
+	TokenType   string `json:"tokenType"`
 	TokenSource string `json:"tokenSource"`
 	Valid       bool   `json:"valid"`
 }
@@ -32,7 +35,7 @@ func newStatusCmd() *cobra.Command {
 The token itself is never printed; only its source (flag, env, or config).
 
 JSON FIELDS
-  username, displayName, orgId, orgType, tokenSource, valid`,
+  username, displayName, orgId, orgType, tokenType, tokenSource, valid`,
 		Example: `  # Check the current login
   ywiki auth status
 
@@ -52,11 +55,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	tokenFlag, _ := cmd.Root().PersistentFlags().GetString("token")
-	orgIDFlag, _ := cmd.Root().PersistentFlags().GetString("org-id")
-	orgTypeFlag, _ := cmd.Root().PersistentFlags().GetString("org-type")
-
-	auth, err := config.ResolveAuth(tokenFlag, orgIDFlag, orgTypeFlag)
+	auth, err := config.ResolveAuth(cmdutil.AuthFlags(cmd))
 	if err != nil {
 		return err
 	}
@@ -64,6 +63,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	item := statusItem{
 		OrgID:       auth.OrgID,
 		OrgType:     string(auth.OrgType),
+		TokenType:   string(auth.TokenType),
 		TokenSource: auth.TokenSource,
 	}
 
@@ -100,6 +100,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 
 	_, _ = fmt.Fprintf(w, "Logged in as %s\n", name)
 	_, _ = fmt.Fprintf(w, "org: %s (%s)\n", item.OrgID, item.OrgType)
+	_, _ = fmt.Fprintf(w, "token type: %s\n", item.TokenType)
 	_, _ = fmt.Fprintf(w, "token source: %s\n", item.TokenSource)
 
 	return nil

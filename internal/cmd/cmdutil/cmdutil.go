@@ -22,16 +22,23 @@ var NewClient = func(auth *config.ResolvedAuth) *api.Client {
 // Client resolves credentials from the root persistent flags, environment, and
 // config file, then returns a ready API client.
 func Client(cmd *cobra.Command) (*api.Client, error) {
-	tokenFlag, _ := cmd.Root().PersistentFlags().GetString("token")
-	orgIDFlag, _ := cmd.Root().PersistentFlags().GetString("org-id")
-	orgTypeFlag, _ := cmd.Root().PersistentFlags().GetString("org-type")
-
-	auth, err := config.ResolveAuth(tokenFlag, orgIDFlag, orgTypeFlag)
+	auth, err := config.ResolveAuth(AuthFlags(cmd))
 	if err != nil {
 		return nil, err
 	}
 
 	return NewClient(auth), nil
+}
+
+// AuthFlags reads the global credential flags from the root command.
+func AuthFlags(cmd *cobra.Command) config.AuthFlags {
+	flags := cmd.Root().PersistentFlags()
+	token, _ := flags.GetString("token")
+	orgID, _ := flags.GetString("org-id")
+	orgType, _ := flags.GetString("org-type")
+	tokenType, _ := flags.GetString("token-type")
+
+	return config.AuthFlags{Token: token, OrgID: orgID, OrgType: orgType, TokenType: tokenType}
 }
 
 // PrepareFields validates and normalizes the --json field selection for a

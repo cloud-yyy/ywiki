@@ -51,6 +51,8 @@ func init() {
 	rootCmd.PersistentFlags().String("org-id", "", "Wiki organization ID (use with --token and --org-type)")
 	rootCmd.PersistentFlags().
 		String("org-type", "", "Organization type, 360 or cloud (use with --token and --org-id)")
+	rootCmd.PersistentFlags().
+		String("token-type", "", "Token type, oauth or iam (default: oauth for 360, iam for cloud)")
 
 	rootCmd.MarkFlagsMutuallyExclusive("json", "quiet")
 	rootCmd.MarkFlagsMutuallyExclusive("jq", "quiet")

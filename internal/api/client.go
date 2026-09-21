@@ -72,6 +72,11 @@ func NewClient(auth *config.ResolvedAuth, opts ...Option) *Client {
 			err.Error(),
 			"Use org-type 360 or cloud, or rerun ywiki auth login",
 		)
+	} else if _, err := config.ParseTokenType(string(auth.TokenType)); err != nil {
+		c.authErr = wikierrors.NewUserError(
+			err.Error(),
+			"Use token-type oauth or iam, or rerun ywiki auth login",
+		)
 	}
 
 	source := ""
@@ -183,7 +188,11 @@ func (c *Client) send(ctx context.Context, r request) (*http.Response, error) {
 		req.Header.Set("Content-Type", contentType)
 	}
 	if c.auth != nil {
-		req.Header.Set("Authorization", c.auth.OrgType.AuthScheme()+" "+c.auth.Token)
+		tokenType := c.auth.TokenType
+		if tokenType == "" {
+			tokenType = c.auth.OrgType.DefaultTokenType()
+		}
+		req.Header.Set("Authorization", tokenType.AuthScheme()+" "+c.auth.Token)
 		req.Header.Set(c.auth.OrgType.OrgHeader(), c.auth.OrgID)
 	}
 
