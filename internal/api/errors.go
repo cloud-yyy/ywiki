@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	wikierrors "github.com/cloud-yyy/ywiki/internal/errors"
@@ -47,12 +48,9 @@ func mapHTTPError(resp *http.Response) error {
 				"Wiki API requests act as you, so Wiki access rules apply.",
 		)
 	case http.StatusNotFound:
-		return wikierrors.NewNotFoundError(message, "Check the page slug or ID")
+		return wikierrors.NewNotFoundError(message, notFoundSuggestion(resp))
 	case http.StatusConflict:
-		return wikierrors.NewUserError(
-			message,
-			"The page changed since it was read. Retry, or pass --allow-merge to merge edits.",
-		)
+		return wikierrors.NewConflictError(message, conflictSuggestion(resp))
 	case http.StatusTooManyRequests:
 		return wikierrors.NewRateLimitedError(message, "Wait and retry")
 	}
@@ -68,6 +66,30 @@ func mapHTTPError(resp *http.Response) error {
 	}
 
 	return wikierrors.NewUserError(message, validationSuggestion(apiErr))
+}
+
+// notFoundSuggestion names what to check when a resource is missing.
+func notFoundSuggestion(resp *http.Response) string {
+	if isGridRequest(resp) {
+		return "Check the table ID. List a page's tables with: ywiki grid list <page>"
+	}
+
+	return "Check the page slug or ID"
+}
+
+// isGridRequest reports whether the response answers a table endpoint.
+func isGridRequest(resp *http.Response) bool {
+	return resp.Request != nil && strings.Contains(resp.Request.URL.Path, "/grids/")
+}
+
+// conflictSuggestion tells the caller how to recover from a rejected write.
+// Table writes are guarded by a revision; page writes can be merged.
+func conflictSuggestion(resp *http.Response) string {
+	if isGridRequest(resp) {
+		return "The table changed since it was read. Run: ywiki grid get <id>, then retry the change."
+	}
+
+	return "The page changed since it was read. Retry, or pass --allow-merge to merge edits."
 }
 
 // mapTransportError converts a network-level failure into a typed error so the
@@ -136,26 +158,35 @@ func errorMessage(apiErr *APIError, statusCode int) string {
 }
 
 // validationSuggestion surfaces the offending field names for VALIDATION_ERROR
-// responses, whose details map sources ("body", "query") to per-field errors.
+// responses, whose details map sources ("body", "query") to per-field error
+// lists. Each field is shown with its error code, e.g. "body.columns (missing)".
 func validationSuggestion(apiErr *APIError) string {
 	if apiErr == nil || len(apiErr.Details) == 0 {
 		return ""
 	}
 
-	var details map[string]map[string]json.RawMessage
+	var details map[string]map[string][]struct {
+		ErrorCode string `json:"error_code"`
+	}
 	if err := json.Unmarshal(apiErr.Details, &details); err != nil {
 		return ""
 	}
 
 	var fields []string
 	for source, sourceFields := range details {
-		for field := range sourceFields {
-			fields = append(fields, source+"."+field)
+		for field, errs := range sourceFields {
+			name := source + "." + field
+			if len(errs) > 0 && errs[0].ErrorCode != "" {
+				name += " (" + errs[0].ErrorCode + ")"
+			}
+			fields = append(fields, name)
 		}
 	}
 	if len(fields) == 0 {
 		return ""
 	}
+
+	slices.Sort(fields)
 
 	return "Invalid fields: " + strings.Join(fields, ", ")
 }

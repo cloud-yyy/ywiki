@@ -12,6 +12,7 @@ const (
 	CodeAuthError    = "auth_error"
 	CodeNotFound     = "not_found"
 	CodeRateLimited  = "rate_limited"
+	CodeConflict     = "conflict"
 	CodeInvalidField = "invalid_field"
 )
 
@@ -88,6 +89,17 @@ func NewRateLimitedError(message, suggestion string) *ExitError {
 	return &ExitError{
 		ExitCode:   ExitRateLimited,
 		Code:       CodeRateLimited,
+		Message:    message,
+		Suggestion: suggestion,
+	}
+}
+
+// NewConflictError creates an ExitError for a write rejected because the
+// resource changed since it was read.
+func NewConflictError(message, suggestion string) *ExitError {
+	return &ExitError{
+		ExitCode:   ExitConflict,
+		Code:       CodeConflict,
 		Message:    message,
 		Suggestion: suggestion,
 	}

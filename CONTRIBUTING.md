@@ -3,7 +3,7 @@
 ## Requirements
 
 - Go 1.26 or newer
-- golangci-lint v2.11 (`brew install golangci-lint`)
+- golangci-lint v2.13.2 (matches CI; `brew install golangci-lint`)
 - goreleaser v2 for release testing (`brew install goreleaser`)
 
 ## Workflow
