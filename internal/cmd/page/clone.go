@@ -14,14 +14,6 @@ import (
 	"github.com/cloud-yyy/ywiki/internal/output"
 )
 
-const (
-	// clonePollInterval is how often the clone operation status is polled.
-	clonePollInterval = time.Second
-
-	// clonePollTimeout bounds the wait for a clone to finish.
-	clonePollTimeout = 5 * time.Minute
-)
-
 // CloneFields lists the available JSON field names for clone output.
 var CloneFields = []string{"operationId", "status", "id", fieldSlug}
 
@@ -75,7 +67,7 @@ JSON FIELDS
 	cmd.Flags().StringVar(&target, "to", "", "Destination slug (required)")
 	cmd.Flags().StringVar(&title, "title", "", "Title for the copy")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Return as soon as the copy is queued")
-	cmd.Flags().DurationVar(&timeout, "timeout", clonePollTimeout, "How long to wait for the copy")
+	cmd.Flags().DurationVar(&timeout, "timeout", cmdutil.OperationPollTimeout, "How long to wait for the copy")
 
 	jsonfields.Register("ywiki page clone", CloneFields)
 
@@ -107,7 +99,10 @@ func runClone(
 	item := cloneItem{OperationID: started.Operation.ID, Status: api.OperationScheduled}
 
 	if !noWait {
-		op, waitErr := waitForClone(cmd.Context(), client, started.Operation.ID, timeout)
+		op, waitErr := cmdutil.WaitForOperation(cmd.Context(),
+			func(ctx context.Context) (*api.CloneOperation, error) {
+				return client.GetCloneOperation(ctx, started.Operation.ID)
+			}, timeout, "page copy", started.Operation.ID)
 		if waitErr != nil {
 			return waitErr
 		}
@@ -147,41 +142,4 @@ func runClone(
 	_, err = fmt.Fprintf(w, "Copied to %s\n%s\n", item.Slug, pageURL(item.Slug))
 
 	return err
-}
-
-// waitForClone polls the clone operation until it finishes or the deadline
-// passes. The API gives no completion callback, so polling is the only way to
-// report the resulting page.
-func waitForClone(
-	ctx context.Context, client *api.Client, operationID string, timeout time.Duration,
-) (*api.CloneOperation, error) {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(clonePollInterval)
-	defer ticker.Stop()
-
-	for {
-		op, err := client.GetCloneOperation(ctx, operationID)
-		if err != nil {
-			return nil, err
-		}
-		if op.Done() {
-			return op, nil
-		}
-
-		if time.Now().After(deadline) {
-			return nil, wikierrors.NewUserError(
-				"timed out waiting for the page copy",
-				fmt.Sprintf(
-					"The copy is still running. Check it later, or rerun with --timeout. "+
-						"Operation: %s", operationID,
-				),
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }

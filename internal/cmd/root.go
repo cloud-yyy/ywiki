@@ -13,6 +13,7 @@ import (
 	"github.com/cloud-yyy/ywiki/internal/cmd/auth"
 	"github.com/cloud-yyy/ywiki/internal/cmd/comment"
 	"github.com/cloud-yyy/ywiki/internal/cmd/completion"
+	"github.com/cloud-yyy/ywiki/internal/cmd/grid"
 	"github.com/cloud-yyy/ywiki/internal/cmd/jsonfields"
 	"github.com/cloud-yyy/ywiki/internal/cmd/page"
 	"github.com/cloud-yyy/ywiki/internal/cmd/search"
@@ -86,6 +87,7 @@ func registerSubcommands() {
 	addGroupedCommand(search.NewCmd(), groupContent)
 	addGroupedCommand(comment.NewCmd(), groupContent)
 	addGroupedCommand(attachment.NewCmd(), groupContent)
+	addGroupedCommand(grid.NewCmd(), groupContent)
 
 	addGroupedCommand(user.NewCmd(), groupAccount)
 	addGroupedCommand(auth.NewCmd(), groupAccount)

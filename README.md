@@ -12,6 +12,7 @@ developers working in a terminal.
 - Full-text search across the wiki
 - Comments and threads
 - Attachments: list, upload, download, delete
+- Dynamic tables: read, create, clone, delete; add, remove, and move rows and columns; set cells
 - Slug or numeric page ID accepted everywhere
 - Structured output with `--json` field selection and `--jq` filtering
 - Shell completions for bash, zsh, and fish
@@ -104,6 +105,12 @@ ywiki comment create users/me/notes --body "Reviewed"
 ywiki attachment upload users/me/notes report.pdf
 ywiki attachment download users/me/notes 987 --out report.pdf
 
+# Dynamic tables
+ywiki grid list users/me/notes
+ywiki grid get <table-id> --format csv
+ywiki grid row add <table-id> --rows '[{"name": "bolt", "qty": 10}]'
+ywiki grid cell set <table-id> 3 qty 12
+
 # Machine-readable output
 ywiki page list users/me --json id,slug
 ywiki search onboarding --jq '.items[].slug'
@@ -130,6 +137,7 @@ ywiki page list users/me --quiet
 | 3 | Authentication or permission failure |
 | 4 | Page or resource not found |
 | 5 | Rate limited |
+| 6 | Conflict: the page changed since it was read |
 | 130 | Interrupted |
 
 ## Documentation

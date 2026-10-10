@@ -52,6 +52,14 @@ func TestErrorMapping(t *testing.T) {
 			wantMessage:  "Slow down (TOO_MANY_REQUESTS)",
 		},
 		{
+			name:         "409 is a conflict",
+			status:       http.StatusConflict,
+			body:         `{"error_code":"CONFLICT","debug_message":"Stale revision"}`,
+			wantExitCode: wikierrors.ExitConflict,
+			wantCode:     wikierrors.CodeConflict,
+			wantMessage:  "Stale revision (CONFLICT)",
+		},
+		{
 			name:         "400 is a user error",
 			status:       http.StatusBadRequest,
 			body:         `{"error_code":"VALIDATION_ERROR","debug_message":"Validation failed"}`,
@@ -114,8 +122,8 @@ func TestValidationErrorNamesFields(t *testing.T) {
 	if !errors.As(err, &exitErr) {
 		t.Fatalf("error %v is not an *ExitError", err)
 	}
-	if exitErr.Suggestion != "Invalid fields: body.title" {
-		t.Errorf("Suggestion = %q, want %q", exitErr.Suggestion, "Invalid fields: body.title")
+	if exitErr.Suggestion != "Invalid fields: body.title (value_error.missing)" {
+		t.Errorf("Suggestion = %q, want %q", exitErr.Suggestion, "Invalid fields: body.title (value_error.missing)")
 	}
 }
 

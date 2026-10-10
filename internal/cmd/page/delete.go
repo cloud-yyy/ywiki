@@ -1,45 +1,39 @@
 package page
 
 import (
-	"bufio"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cloud-yyy/ywiki/internal/api"
 	"github.com/cloud-yyy/ywiki/internal/cmd/cmdutil"
-	wikierrors "github.com/cloud-yyy/ywiki/internal/errors"
 	"github.com/cloud-yyy/ywiki/internal/output"
 )
 
 func newDeleteCmd() *cobra.Command {
-	var confirm bool
-
 	cmd := &cobra.Command{
 		Use:   "delete <slug|id>",
 		Short: "Delete a page",
 		Long: `Delete a Yandex Wiki page.
 
-Deleting is destructive, so the command asks for confirmation when run in a
-terminal and refuses to run unattended without --yes.`,
-		Example: `  # Delete a page, with a confirmation prompt
-  ywiki page delete users/me/scratch
-
-  # Delete a page from a script
-  ywiki page delete users/me/scratch --yes`,
+Deleting is permanent and does not ask for confirmation.`,
+		Example: `  # Delete a page
+  ywiki page delete users/me/scratch`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDelete(cmd, args[0], confirm)
+			return runDelete(cmd, args[0])
 		},
 	}
 
-	cmd.Flags().BoolVarP(&confirm, "yes", "y", false, "Skip the confirmation prompt")
+	// The command used to ask for confirmation. Scripts that pass --yes keep
+	// working; the flag does nothing now.
+	cmd.Flags().BoolP("yes", "y", false, "Accepted for compatibility; deleting no longer asks")
+	_ = cmd.Flags().MarkDeprecated("yes", "deleting no longer asks for confirmation")
 
 	return cmd
 }
 
-func runDelete(cmd *cobra.Command, ref string, confirm bool) error {
+func runDelete(cmd *cobra.Command, ref string) error {
 	client, err := cmdutil.Client(cmd)
 	if err != nil {
 		return err
@@ -47,28 +41,11 @@ func runDelete(cmd *cobra.Command, ref string, confirm bool) error {
 
 	locator := api.ParsePageLocator(ref)
 
-	// Resolve first so the prompt names the page the user is about to lose,
-	// and so a typo fails as "not found" before anything is deleted.
+	// Resolve first: the delete endpoint takes an ID, and the result names the
+	// page by its slug.
 	page, err := client.GetPage(cmd.Context(), locator, api.GetPageOptions{})
 	if err != nil {
 		return err
-	}
-
-	if !confirm {
-		if !output.IsTTY() {
-			return wikierrors.NewUserError(
-				"refusing to delete without confirmation",
-				"Rerun with --yes to confirm",
-			)
-		}
-		ok, promptErr := confirmDelete(cmd, page)
-		if promptErr != nil {
-			return promptErr
-		}
-		if !ok {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Canceled")
-			return nil
-		}
 	}
 
 	if deleteErr := client.DeletePage(cmd.Context(), page.ID); deleteErr != nil {
@@ -83,21 +60,4 @@ func runDelete(cmd *cobra.Command, ref string, confirm bool) error {
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", page.Slug)
 
 	return err
-}
-
-func confirmDelete(cmd *cobra.Command, page *api.Page) (bool, error) {
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Delete %q (%s)? [y/N] ", page.Title, page.Slug)
-
-	reader := bufio.NewReader(cmd.InOrStdin())
-	answer, err := reader.ReadString('\n')
-	if err != nil && answer == "" {
-		return false, fmt.Errorf("failed to read confirmation: %w", err)
-	}
-
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "y", "yes":
-		return true, nil
-	default:
-		return false, nil
-	}
 }

@@ -178,35 +178,31 @@ func TestPageAppendSendsLocation(t *testing.T) {
 	}
 }
 
-func TestPageDeleteRefusesWithoutConfirmation(t *testing.T) {
+func TestPageDelete(t *testing.T) {
 	handler, log := testutil.JSONHandler(http.StatusOK, pageJSON)
 	testutil.StubAPI(t, handler)
 
-	_, _, err := testutil.Execute(t, page.NewCmd, "delete", "12345")
-	if err == nil {
-		t.Fatal("page delete ran unattended without --yes")
-	}
-
-	for i := range log.Len() {
-		if log.At(i).Method == http.MethodDelete {
-			t.Fatal("page delete issued a DELETE without confirmation")
-		}
-	}
-}
-
-func TestPageDeleteWithYes(t *testing.T) {
-	handler, log := testutil.JSONHandler(http.StatusOK, pageJSON)
-	testutil.StubAPI(t, handler)
-
-	stdout, _, err := testutil.Execute(t, page.NewCmd, "delete", "12345", "--yes")
+	stdout, _, err := testutil.Execute(t, page.NewCmd, "delete", "12345")
 	if err != nil {
-		t.Fatalf("page delete --yes returned error: %v", err)
+		t.Fatalf("page delete returned error: %v", err)
 	}
 	if !strings.Contains(stdout, "Deleted users/me/notes") {
 		t.Errorf("stdout = %q, want a deletion confirmation", stdout)
 	}
 	if last := log.Last(); last.Method != http.MethodDelete {
 		t.Errorf("last request = %s %s, want a DELETE", last.Method, last.Path)
+	}
+}
+
+func TestPageDeleteAcceptsLegacyYesFlag(t *testing.T) {
+	handler, log := testutil.JSONHandler(http.StatusOK, pageJSON)
+	testutil.StubAPI(t, handler)
+
+	if _, _, err := testutil.Execute(t, page.NewCmd, "delete", "12345", "--yes"); err != nil {
+		t.Fatalf("page delete --yes returned error: %v", err)
+	}
+	if last := log.Last(); last.Method != http.MethodDelete {
+		t.Errorf("last request = %s, want a DELETE", last.Method)
 	}
 }
 

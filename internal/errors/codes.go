@@ -19,6 +19,10 @@ const (
 	// ExitRateLimited indicates the API rate limit was exceeded.
 	ExitRateLimited = 5
 
+	// ExitConflict indicates the resource changed since it was read, so the
+	// write was rejected. Re-read it and retry.
+	ExitConflict = 6
+
 	// ExitInterrupted indicates the process was interrupted by a signal (e.g., Ctrl+C).
 	ExitInterrupted = 130
 )
