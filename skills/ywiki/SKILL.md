@@ -89,7 +89,13 @@ ywiki comment create users/me/notes --body "Agreed" --reply-to 42
 ywiki attachment list users/me/notes --json id,name
 ywiki attachment upload users/me/notes report.pdf
 ywiki attachment download users/me/notes 987 --out report.pdf
+ywiki attachment download users/me/notes --all --out attachments --json id,name,path
 ```
+
+Bulk downloads follow every attachment listing cursor and save files as
+`<id>-<name>` inside the destination directory (current directory by default).
+Existing files are never overwritten. On failure, completed downloads remain
+and the incomplete file is removed. `--quiet` prints saved paths.
 
 ## Tables
 
