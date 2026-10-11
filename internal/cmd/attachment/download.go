@@ -10,26 +10,49 @@ import (
 
 	"github.com/cloud-yyy/ywiki/internal/api"
 	"github.com/cloud-yyy/ywiki/internal/cmd/cmdutil"
+	"github.com/cloud-yyy/ywiki/internal/cmd/jsonfields"
 	wikierrors "github.com/cloud-yyy/ywiki/internal/errors"
 )
 
 func newDownloadCmd() *cobra.Command {
 	var out string
+	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "download <slug|id> <file-id>",
-		Short: "Download an attached file",
+		Use:   "download <slug|id> [<file-id>]",
+		Short: "Download one or all attached files",
 		Long: `Download a file attached to a Yandex Wiki page.
 
 The file is written to stdout unless --out names a destination, so it can be
-piped straight into another tool.`,
+piped straight into another tool.
+
+With --all, download every attachment across all listing pages to the directory
+named by --out (default: the current directory). Files are named <id>-<name>
+to distinguish duplicate names. Existing files are never overwritten. On an
+error the command stops; completed files remain, and the incomplete file is
+removed. JSON output lists id, name, and path; --quiet prints saved paths.`,
 		Example: `  # Save an attachment to a file
   ywiki attachment download users/me/notes 987 --out report.pdf
 
   # Pipe an attachment to another tool
-  ywiki attachment download users/me/notes 987 | wc -c`,
-		Args: cobra.ExactArgs(2),
+  ywiki attachment download users/me/notes 987 | wc -c
+
+  # Download every attachment into a directory
+  ywiki attachment download users/me/notes --all --out attachments`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all {
+				if len(args) != 1 {
+					return wikierrors.NewUserError("--all cannot be combined with a file ID", "Pass only the page")
+				}
+				return runDownloadAll(cmd, args[0], out)
+			}
+			if len(args) != 2 {
+				return wikierrors.NewUserError(
+					"missing file ID",
+					"Pass a file ID, or --all to download every attachment",
+				)
+			}
 			fileID, err := strconv.Atoi(args[1])
 			if err != nil || fileID <= 0 {
 				return wikierrors.NewUserError(
@@ -42,7 +65,9 @@ piped straight into another tool.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&out, "out", "o", "", "Write the file here instead of stdout")
+	cmd.Flags().StringVarP(&out, "out", "o", "", "Destination file, or directory with --all")
+	cmd.Flags().BoolVar(&all, "all", false, "Download every attachment to a directory")
+	jsonfields.Register("ywiki attachment download", DownloadFields)
 
 	return cmd
 }

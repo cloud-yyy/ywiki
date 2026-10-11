@@ -104,6 +104,7 @@ ywiki comment create users/me/notes --body "Reviewed"
 # Attachments
 ywiki attachment upload users/me/notes report.pdf
 ywiki attachment download users/me/notes 987 --out report.pdf
+ywiki attachment download users/me/notes --all --out attachments
 
 # Dynamic tables
 ywiki grid list users/me/notes
